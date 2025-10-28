@@ -1,14 +1,17 @@
 package com.equipoea.Tankwar.uigame
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,39 +20,61 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.equipoea.Tankwar.model.EstadoDelJuego
 import com.equipoea.Tankwar.model.GameState
+import com.equipoea.Tankwar.model.Vector2D
 import com.equipoea.Tankwar.viewmodel.GameViewModel
 
 @Composable
 fun GameScreen(viewModel: GameViewModel) {
-
-    // Observamos el GameState completo
     val state by viewModel.gameState.collectAsState()
-
-    // Observamos los valores de los sliders
     val angulo by viewModel.anguloActual.collectAsState()
     val potencia by viewModel.potenciaActual.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // --- EL LAYOUT FINAL Y CORRECTO ---
+    // Un Box permite que el GameOverOverlay se superponga
+    Box(modifier = Modifier.fillMaxSize()) {
 
-        // --- 1. Lienzo del Juego (ocupa todo el espacio posible) ---
-        Box(modifier = Modifier.weight(1f)) {
-            GameCanvas(state = state)
+        // Esta Columna organiza la pantalla: Juego arriba, Controles abajo
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // 1. Canvas (ocupa el espacio restante)
+            Box(modifier = Modifier
+                .weight(1f) // <-- Ocupa todo el espacio MENOS los controles
+                .fillMaxWidth()) {
+
+                // Este Canvas ahora escala su contenido
+                GameCanvas(state = state)
+            }
+
+            // 2. Controles (en la parte de abajo)
+            if (state.estadoJuego == EstadoDelJuego.APUNTANDO) {
+                ControlPanel(
+                    angulo = angulo,
+                    potencia = potencia,
+                    turnoActual = state.turnoActual,
+                    onAnguloChange = { viewModel.onAnguloChange(it) },
+                    onPotenciaChange = { viewModel.onPotenciaChange(it) },
+                    onDispararClick = { viewModel.onDispararClick() }
+                )
+            }
         }
 
-        // --- 2. Panel de Controles ---
-        // Solo mostramos los controles si estamos en la fase de APUNTANDO
-        if (state.estadoJuego == EstadoDelJuego.APUNTANDO) {
-            ControlPanel(
-                angulo = angulo,
-                potencia = potencia,
-                turnoActual = state.turnoActual,
-                onAnguloChange = { viewModel.onAnguloChange(it) },
-                onPotenciaChange = { viewModel.onPotenciaChange(it) },
-                onDispararClick = { viewModel.onDispararClick() }
+        // 3. Pantalla de Fin de Partida (Superpuesta)
+        if (state.estadoJuego == EstadoDelJuego.FIN_PARTIDA) {
+            val ganador = if (state.tanque1.salud > 0) 1 else 2
+            GameOverOverlay(
+                ganador = ganador,
+                onReiniciarClick = { viewModel.onReiniciarClick() }
             )
         }
     }
@@ -57,46 +82,102 @@ fun GameScreen(viewModel: GameViewModel) {
 
 @Composable
 fun GameCanvas(state: GameState) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        // 'this' es el DrawScope
+    // --- ESTA ES LA MAGIA ---
+    // Usamos BoxWithConstraints para saber el tamaño real del Canvas
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // constraints.maxWidth y constraints.maxHeight son el tamaño real
+        // de este Box (el que tiene weight(1f))
 
-        // 1. Dibujar el fondo
-        drawRect(color = Color.Cyan)
+        // Calculamos los factores de escala
+        val scaleX = constraints.maxWidth.toFloat() / GameViewModel.MUNDO_ANCHO
+        val scaleY = constraints.maxHeight.toFloat() / GameViewModel.MUNDO_ALTO
 
-        // --- NUEVO: Dibujar el suelo basado en la lógica ---
-        // Usamos la constante del ViewModel (importada)
-        val alturaSueloPx = GameViewModel.ALTURA_SUELO
+        // Creamos una función de transformación para Coordenadas
+        fun scale(pos: Vector2D): Offset {
+            return Offset(pos.x * scaleX, pos.y * scaleY)
+        }
 
-        drawRect(
-            color = Color(0xFF2e7d32), // Un verde oscuro
-            topLeft = Offset(0f, alturaSueloPx),
-            size = androidx.compose.ui.geometry.Size(size.width, size.height - alturaSueloPx)
-        )
+        // Creamos una función de transformación para Radios/Distancias
+        fun scale(v: Float): Float {
+            // Usamos el promedio para los radios, o el más pequeño
+            return v * minOf(scaleX, scaleY)
+        }
 
-        // 3. Dibujar el Tanque 1 (basado en el estado)
-        // Su 'Y' ya está calculada en el ViewModel (ALTURA_SUELO - 30f)
-        drawCircle(
-            color = Color.Blue,
-            radius = 30f,
-            center = Offset(state.tanque1.posicion.x, state.tanque1.posicion.y)
-        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // El mundo del ViewModel es 1080x1920
+            // El mundo de este Canvas es size.width x size.height (ej: 1080x1700)
 
-        // 4. Dibujar el Tanque 2 (basado en el estado)
-        drawCircle(
-            color = Color.Red,
-            radius = 30f,
-            center = Offset(state.tanque2.posicion.x, state.tanque2.posicion.y)
-        )
+            // 1. Dibujar el fondo
+            drawRect(color = Color.Cyan)
 
-        // 5. Dibujar el Proyectil (si existe)
-        state.proyectil?.let {
-            drawCircle(
-                color = Color.Black,
-                radius = 15f,
-                center = Offset(it.posicion.x, it.posicion.y)
+            // 2. Dibujar el suelo
+            val alturaSueloVm = GameViewModel.ALTURA_SUELO // 1600f (en mundo ViewModel)
+            val alturaSueloPx = alturaSueloVm * scaleY // (en mundo Canvas)
+            drawRect(
+                color = Color(0xFF2e7d32),
+                topLeft = Offset(0f, alturaSueloPx),
+                size = Size(size.width, size.height - alturaSueloPx)
             )
+
+            // 3. Dibujar Tanque 1
+            drawCircle(
+                color = Color.Blue,
+                radius = scale(GameViewModel.RADIO_TANQUE), // <-- Se escala
+                center = scale(state.tanque1.posicion) // <-- Se escala
+            )
+
+            // 4. Dibujar Tanque 2
+            drawCircle(
+                color = Color.Red,
+                radius = scale(GameViewModel.RADIO_TANQUE), // <-- Se escala
+                center = scale(state.tanque2.posicion) // <-- Se escala
+            )
+
+            // 5. Dibujar Barras de Vida
+            drawVidaBarra(
+                posicion = scale(state.tanque1.posicion),
+                salud = state.tanque1.salud,
+                color = Color.Blue,
+                radioPx = scale(GameViewModel.RADIO_TANQUE)
+            )
+            drawVidaBarra(
+                posicion = scale(state.tanque2.posicion),
+                salud = state.tanque2.salud,
+                color = Color.Red,
+                radioPx = scale(GameViewModel.RADIO_TANQUE)
+            )
+
+            // 6. Dibujar Proyectil
+            state.proyectil?.let {
+                drawCircle(
+                    color = Color.Black,
+                    radius = scale(GameViewModel.RADIO_PROYECTIL), // <-- Se escala
+                    center = scale(it.posicion) // <-- Se escala
+                )
+            }
         }
     }
+}
+
+// --- NUEVO: Función de ayuda para dibujar la vida ---
+// Actualizamos drawVidaBarra para que use píxeles escalados
+private fun DrawScope.drawVidaBarra(
+    posicion: Offset, // Ya está escalado
+    salud: Int,
+    color: Color,
+    radioPx: Float // Ya está escalado
+) {
+    val anchoBarraSalud = 100f // Mantenemos este ancho en Px
+    val altoBarraSalud = 10f
+    val offsetY = radioPx + 20f
+
+    val barraPosX = posicion.x - (anchoBarraSalud / 2)
+    val barraPosY = posicion.y - offsetY
+    val anchoSaludActual = (anchoBarraSalud * (salud / 100f)).coerceAtLeast(0f)
+
+    drawRect(color = Color.Gray, topLeft = Offset(barraPosX, barraPosY), size = Size(anchoBarraSalud, altoBarraSalud))
+    drawRect(color = color, topLeft = Offset(barraPosX, barraPosY), size = Size(anchoSaludActual, altoBarraSalud))
+    drawRect(color = Color.Black, topLeft = Offset(barraPosX, barraPosY), size = Size(anchoBarraSalud, altoBarraSalud), style = Stroke(width = 2f))
 }
 
 @Composable
@@ -111,6 +192,8 @@ fun ControlPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface) // Color de fondo del tema
+            .navigationBarsPadding()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -140,6 +223,41 @@ fun ControlPanel(
                 .padding(top = 8.dp)
         ) {
             Text(text = "¡DISPARAR!")
+        }
+    }
+}
+
+// --- NUEVO: Composable para la pantalla de Fin de Partida ---
+@Composable
+fun GameOverOverlay(ganador: Int, onReiniciarClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f)) // Fondo oscuro semitransparente
+            .safeDrawingPadding()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "¡FIN DE LA PARTIDA!",
+            style = TextStyle(
+                color = Color.White,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold
+            )
+        )
+        Text(
+            text = "Ganador: Jugador $ganador",
+            style = TextStyle(
+                color = if (ganador == 1) Color.Blue else Color.Red,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            modifier = Modifier.padding(top = 16.dp, bottom = 32.dp)
+        )
+        Button(onClick = onReiniciarClick) {
+            Text(text = "Jugar de Nuevo")
         }
     }
 }
