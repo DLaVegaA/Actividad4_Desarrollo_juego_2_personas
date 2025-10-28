@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 class GameViewModel : ViewModel() {
 
@@ -27,9 +28,15 @@ class GameViewModel : ViewModel() {
         const val MUNDO_ALTO = 1920f // Un alto lógico para la pantalla
         const val ALTURA_SUELO = 1600f // Altura Y donde está el suelo
 
-        const val GRAVEDAD = 9.8f * 10
+        const val GRAVEDAD = 9.8f * 80
         const val TIEMPO_DELTA_MS = 16L // ~60 FPS
         const val TIEMPO_DELTA_S = 0.016f
+        // Un valor cercano a 1.0f. Multiplicará la velocidad en cada frame.
+        const val FACTOR_ROZAMIENTO = 0.995f
+        const val RADIO_TANQUE = 30f
+        const val RADIO_PROYECTIL = 15f
+        const val DISTANCIA_IMPACTO = RADIO_TANQUE + RADIO_PROYECTIL // 45f
+        const val DANO_PROYECTIL = 25 // Daño que hace un impacto
     }
 
     // Estado privado y mutable
@@ -49,8 +56,8 @@ class GameViewModel : ViewModel() {
     // Función para inicializar el juego
     private fun crearEstadoInicial(): GameState {
         // Posicionamos los tanques dentro del MUNDO_ANCHO
-        val tanque1 = Tanque(id = 1, posicion = Vector2D(100f, ALTURA_SUELO - 30f))
-        val tanque2 = Tanque(id = 2, posicion = Vector2D(MUNDO_ANCHO - 100f, ALTURA_SUELO - 30f))
+        val tanque1 = Tanque(id = 1, posicion = Vector2D(100f, ALTURA_SUELO - RADIO_TANQUE))
+        val tanque2 = Tanque(id = 2, posicion = Vector2D(MUNDO_ANCHO - 100f, ALTURA_SUELO - RADIO_TANQUE))
 
         return GameState(
             tanque1 = tanque1,
@@ -79,21 +86,33 @@ class GameViewModel : ViewModel() {
         }
     }
 
+    fun onReiniciarClick() {
+        _gameState.value = crearEstadoInicial()
+        _anguloActual.value = 45.0f
+        _potenciaActual.value = 50.0f
+    }
+
     // --- El Motor de Física ---
 
     private suspend fun iniciarSimulacion() {
         _gameState.update { it.copy(estadoJuego = EstadoDelJuego.SIMULANDO) }
 
         val angulo = _anguloActual.value
-        val potencia = _potenciaActual.value * 20
+        val potencia = _potenciaActual.value * 15
 
         var proyectilActual = crearProyectilInicial(angulo, potencia)
+        var huboImpacto = false
 
         while (proyectilActual.estaVolando) {
 
             // --- A. Aplicar Física ---
-            val nuevaVelocidadY = proyectilActual.velocidad.y + (GRAVEDAD * TIEMPO_DELTA_S)
-            val nuevaVelocidadX = proyectilActual.velocidad.x
+            val velocidadYAnterior = proyectilActual.velocidad.y
+            val velocidadXAnterior = proyectilActual.velocidad.x
+
+            // Aplicamos gravedad Y resistencia del aire
+            val nuevaVelocidadY = (velocidadYAnterior + (GRAVEDAD * TIEMPO_DELTA_S)) * FACTOR_ROZAMIENTO
+            // Aplicamos resistencia del aire
+            val nuevaVelocidadX = velocidadXAnterior * FACTOR_ROZAMIENTO
 
             val nuevaPosX = proyectilActual.posicion.x + (nuevaVelocidadX * TIEMPO_DELTA_S)
             val nuevaPosY = proyectilActual.posicion.y + (nuevaVelocidadY * TIEMPO_DELTA_S)
@@ -107,6 +126,14 @@ class GameViewModel : ViewModel() {
             _gameState.update { it.copy(proyectil = proyectilActual) }
 
             // --- C. Comprobar Colisiones ---
+            val estadoActual = _gameState.value
+            val tanqueEnemigo = if (estadoActual.turnoActual == 1) estadoActual.tanque2 else estadoActual.tanque1
+            val distancia = calcularDistancia(proyectilActual.posicion, tanqueEnemigo.posicion)
+
+            if (distancia < DISTANCIA_IMPACTO) {
+                huboImpacto = true
+                proyectilActual = proyectilActual.copy(estaVolando = false) // Detiene el proyectil
+            }
 
             // --- FIX 1: Comprobación de límites (Bounds Check) ---
             val x = proyectilActual.posicion.x
@@ -122,12 +149,14 @@ class GameViewModel : ViewModel() {
                 proyectilActual = proyectilActual.copy(estaVolando = false)
 
                 if (chocaSuelo) Log.d("GameViewModel", "¡Impacto en el suelo!")
-                else Log.d("GameViewModel", "¡Proyectil fuera de límites!")
+                //else Log.d("GameViewModel", "¡Proyectil fuera de límites!")
             }
             // --- Fin del FIX 1 ---
 
             // --- D. Esperar al siguiente frame ---
-            delay(TIEMPO_DELTA_MS)
+            if (proyectilActual.estaVolando) {
+                delay(TIEMPO_DELTA_MS)
+            }
         }
 
         // --- 4. Fin de la Simulación ---
@@ -135,11 +164,44 @@ class GameViewModel : ViewModel() {
 
         _gameState.update { it.copy(
             estadoJuego = EstadoDelJuego.EXPLOSION,
-            proyectil = null
+            proyectil = null // Ocultamos el proyectil
         )}
         delay(1000)
 
-        cambiarTurno()
+        // --- NUEVO: Aplicar daño y comprobar fin de partida ---
+        var esFinDePartida = false
+        if (huboImpacto) {
+            _gameState.update { estadoActual ->
+                val tanqueEnemigoId = if (estadoActual.turnoActual == 1) 2 else 1
+                val tanqueEnemigo = if (tanqueEnemigoId == 1) estadoActual.tanque1 else estadoActual.tanque2
+
+                val nuevaSalud = (tanqueEnemigo.salud - DANO_PROYECTIL).coerceAtLeast(0)
+                Log.d("GameViewModel", "¡Impacto en Tanque $tanqueEnemigoId! Salud restante: $nuevaSalud")
+
+                esFinDePartida = (nuevaSalud == 0)
+                val nuevoEstadoJuego = if (esFinDePartida) EstadoDelJuego.FIN_PARTIDA else EstadoDelJuego.APUNTANDO
+
+                if (tanqueEnemigoId == 1) {
+                    estadoActual.copy(tanque1 = tanqueEnemigo.copy(salud = nuevaSalud), estadoJuego = nuevoEstadoJuego)
+                } else {
+                    estadoActual.copy(tanque2 = tanqueEnemigo.copy(salud = nuevaSalud), estadoJuego = nuevoEstadoJuego)
+                }
+            }
+        }
+
+        // Solo cambiamos de turno si el juego NO ha terminado
+        if (!esFinDePartida && !huboImpacto) {
+            // Si no hubo impacto, solo cambiamos el turno
+            cambiarTurno()
+        } else if (esFinDePartida) {
+            Log.d("GameViewModel", "¡FIN DE LA PARTIDA!")
+            // No hacemos nada, el estado FIN_PARTIDA bloqueará los controles
+        } else if (huboImpacto && !esFinDePartida) {
+            // Si hubo impacto PERO no es fin de partida, cambiamos el turno
+            cambiarTurno()
+        }
+
+        //cambiarTurno()
     }
 
     private fun crearProyectilInicial(angulo: Float, potencia: Float): Proyectil {
@@ -171,5 +233,11 @@ class GameViewModel : ViewModel() {
         }
         _anguloActual.value = 45.0f
         _potenciaActual.value = 50.0f
+    }
+
+    private fun calcularDistancia(p1: Vector2D, p2: Vector2D): Float {
+        val dx = p1.x - p2.x
+        val dy = p1.y - p2.y
+        return sqrt(dx * dx + dy * dy)
     }
 }
