@@ -25,6 +25,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import com.equipoea.Tankwar.data.SettingsManager
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+
 
 // Hereda de AndroidViewModel para obtener el Context
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,6 +52,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // --- Instancia del Repositorio ---
     private val repository = GameRepository(application.applicationContext)
 
+    private val settingsManager = SettingsManager(application)
+
     // --- ESTADO (Versión única y limpia) ---
     private val _gameState = MutableStateFlow(crearEstadoInicial())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
@@ -61,6 +67,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent = _uiEvent.asSharedFlow()
+
+    val isDarkTheme: StateFlow<Boolean> = settingsManager.isDarkMode
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun setTheme(isDark: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setDarkMode(isDark)
+        }
+    }
 
     // --- Funciones de Configuración ---
     fun iniciarModoDeJuego(modo: ModoDeJuego, dificultad: Dificultad) {
@@ -84,12 +103,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             modoDeJuego = modo,
             dificultad = dificultad,
             loadedFromFileName = null,
-            anguloActual = 45.0f, // <-- El estado vive aquí
-            potenciaActual = 50.0f // <-- El estado vive aquí
+            anguloActual = 45.0f,
+            potenciaActual = 50.0f
         )
     }
 
-    // --- Funciones de UI ---
+    // Funciones de UI ---
     fun onAnguloChange(nuevoAngulo: Float) {
         _gameState.update { it.copy(anguloActual = nuevoAngulo) }
     }
