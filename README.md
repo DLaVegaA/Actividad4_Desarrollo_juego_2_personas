@@ -29,7 +29,7 @@ Este es un proyecto de código abierto de Android. Para compilarlo y ejecutarlo,
 
 1.  **Clonar el Repositorio:**
     ```bash
-    git clone [URL_DE_TU_REPOSITORIO]
+    git clone https://github.com/DLaVegaA/Actividad4_Desarrollo_juego_2_personas.git
     ```
 2.  **Abrir en Android Studio:**
     * Abre Android Studio.
@@ -44,4 +44,4 @@ Este es un proyecto de código abierto de Android. Para compilarlo y ejecutarlo,
 
 ## 📸 Capturas del Funcionamiento
 
-*(¡Aquí puedes agregar tus capturas de pantalla!)*
+
