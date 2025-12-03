@@ -19,13 +19,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.equipoea.Tankwar.viewmodel.GameViewModel
 
 @Composable
 fun StartScreen(
-    navController: NavController
+    navController: NavController,
+    viewModel: GameViewModel = viewModel()
 ) {
     // --- NUEVO: Estado para mostrar/ocultar los botones de dificultad ---
     var mostrarDificultad by remember { mutableStateOf(false) }
+    val isDarkTheme by viewModel.isDarkTheme.collectAsState()
 
     Column(
         modifier = Modifier
@@ -120,6 +127,26 @@ fun StartScreen(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
         ) {
             Text(text = "Cargar Juego")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Tema Oscuro (Guinda)",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Switch(
+                checked = isDarkTheme,
+                onCheckedChange = { isChecked ->
+                    // Llama al ViewModel para guardar el cambio
+                    viewModel.setTheme(isChecked)
+                }
+            )
         }
     }
 }

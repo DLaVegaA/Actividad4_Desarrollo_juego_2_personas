@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.equipoea.Tankwar" />
+                  <option name="mobileSdkAppId" value="1:373783699037:android:de08ba0a286d8536f8b7b4" />
+                  <option name="projectId" value="tankwar-firebase" />
+                  <option name="projectNumber" value="373783699037" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

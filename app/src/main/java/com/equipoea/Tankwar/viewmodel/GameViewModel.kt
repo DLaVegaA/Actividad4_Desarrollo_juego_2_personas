@@ -28,6 +28,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import com.equipoea.Tankwar.data.SettingsManager
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -50,6 +54,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val bluetoothManager = BluetoothConnectionManager
     private val gson = com.google.gson.Gson()
 
+    private val settingsManager = SettingsManager(application)
+
+    // --- ESTADO (Versión única y limpia) ---
     private val _gameState = MutableStateFlow(crearEstadoInicial())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
@@ -62,6 +69,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent = _uiEvent.asSharedFlow()
 
+    val isDarkTheme: StateFlow<Boolean> = settingsManager.isDarkMode
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun setTheme(isDark: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setDarkMode(isDark)
+        }
+    }
     // --- CORRECCIÓN: Manejo de mensajes con el nuevo formato simple ---
     init {
         viewModelScope.launch {

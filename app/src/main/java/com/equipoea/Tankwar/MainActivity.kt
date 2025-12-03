@@ -16,12 +16,14 @@ import androidx.navigation.compose.rememberNavController
 import com.equipoea.Tankwar.ui.menu.StartScreen
 import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavController
-import androidx.navigation.NavType // <-- IMPORT AÑADIDO
-import androidx.navigation.navArgument // <-- IMPORT AÑADIDO
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.equipoea.Tankwar.model.Dificultad
 import com.equipoea.Tankwar.model.ModoDeJuego
-import com.equipoea.Tankwar.ui.menu.LoadGameScreen // <-- IMPORT AÑADIDO
-import kotlinx.coroutines.flow.collect // <-- IMPORT AÑADIDO
+import com.equipoea.Tankwar.ui.menu.LoadGameScreen
+import kotlinx.coroutines.flow.collect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 
 class MainActivity : ComponentActivity() {
 
@@ -31,7 +33,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            TankWarTheme {
+            val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+            TankWarTheme (darkTheme = isDarkTheme){
                 val navController = rememberNavController()
 
                 LaunchedEffect(Unit) {
