@@ -4,9 +4,12 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.equipoea.Tankwar.data.BluetoothConnectionManager
 import com.equipoea.Tankwar.data.GameRepository
 import com.equipoea.Tankwar.model.Dificultad
 import com.equipoea.Tankwar.model.EstadoDelJuego
+import com.equipoea.Tankwar.model.GameMessage
+import com.equipoea.Tankwar.model.MessageType // <-- IMPORTAR
 import com.equipoea.Tankwar.model.GameState
 import com.equipoea.Tankwar.model.ModoDeJuego
 import com.equipoea.Tankwar.model.Proyectil
@@ -30,10 +33,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 
 
-// Hereda de AndroidViewModel para obtener el Context
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- Constantes del Juego ---
     companion object {
         const val MUNDO_ANCHO = 1080f
         const val MUNDO_ALTO = 1920f
@@ -49,8 +50,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val PUNTOS_PARA_GANAR = 3
     }
 
-    // --- Instancia del Repositorio ---
     private val repository = GameRepository(application.applicationContext)
+    private val bluetoothManager = BluetoothConnectionManager
+    private val gson = com.google.gson.Gson()
 
     private val settingsManager = SettingsManager(application)
 
@@ -62,7 +64,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val navegarAInicio = _navegarAInicio.asSharedFlow()
 
     private val _savedGamesList = MutableStateFlow<List<String>>(emptyList())
-
     val savedGamesList: StateFlow<List<String>> = _savedGamesList.asStateFlow()
 
     private val _uiEvent = MutableSharedFlow<String>()
@@ -80,15 +81,51 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             settingsManager.setDarkMode(isDark)
         }
     }
+    // --- CORRECCIÓN: Manejo de mensajes con el nuevo formato simple ---
+    init {
+        viewModelScope.launch {
+            bluetoothManager.incomingMessages.collect { message ->
+                Log.d("GameViewModel", "Mensaje procesado: ${message.type}")
 
-    // --- Funciones de Configuración ---
-    fun iniciarModoDeJuego(modo: ModoDeJuego, dificultad: Dificultad) {
-        _gameState.value = crearEstadoInicial(modo, dificultad)
+                if (esTurnoLocal()) {
+                    Log.w("GameViewModel", "Mensaje ignorado (es mi turno)")
+                    return@collect
+                }
+
+                when (message.type) {
+                    MessageType.SHOT -> {
+                        // Recibimos disparo: actualizar datos del oponente y SIMULAR
+                        _gameState.update { it.copy(
+                            anguloActual = message.angulo,
+                            potenciaActual = message.potencia
+                        )}
+                        onDispararClick() // Esto inicia la simulación visual
+                    }
+                    MessageType.NEXT_ROUND -> {
+                        onSiguienteRoundClick()
+                    }
+                    MessageType.QUIT -> {
+                        onVolverAlMenuClick()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun esTurnoLocal(): Boolean {
+        val state = _gameState.value
+        return state.modoDeJuego != ModoDeJuego.PVP_BLUETOOTH ||
+                state.localPlayerId == state.turnoActual
+    }
+
+    fun iniciarModoDeJuego(modo: ModoDeJuego, dificultad: Dificultad, localPlayerId: Int = 1) {
+        _gameState.value = crearEstadoInicial(modo, dificultad, localPlayerId)
     }
 
     private fun crearEstadoInicial(
         modo: ModoDeJuego = ModoDeJuego.PVP,
-        dificultad: Dificultad = Dificultad.NINGUNA
+        dificultad: Dificultad = Dificultad.NINGUNA,
+        localPlayerId: Int = 1
     ): GameState {
         val tanque1 = Tanque(id = 1, posicion = Vector2D(100f, ALTURA_SUELO - RADIO_TANQUE), salud = 100)
         val tanque2 = Tanque(id = 2, posicion = Vector2D(MUNDO_ANCHO - 100f, ALTURA_SUELO - RADIO_TANQUE), salud = 100)
@@ -104,11 +141,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             dificultad = dificultad,
             loadedFromFileName = null,
             anguloActual = 45.0f,
-            potenciaActual = 50.0f
+            potenciaActual = 50.0f,
+            localPlayerId = localPlayerId
         )
     }
 
-    // Funciones de UI ---
     fun onAnguloChange(nuevoAngulo: Float) {
         _gameState.update { it.copy(anguloActual = nuevoAngulo) }
     }
@@ -117,9 +154,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _gameState.update { it.copy(potenciaActual = nuevaPotencia) }
     }
 
+    // --- CORRECCIÓN: Envío de mensajes con formato simple ---
     fun onDispararClick() {
-        if (_gameState.value.estadoJuego != EstadoDelJuego.APUNTANDO &&
-            _gameState.value.estadoJuego != EstadoDelJuego.IA_PENSANDO) return
+        val currentState = _gameState.value
+        if (currentState.estadoJuego != EstadoDelJuego.APUNTANDO &&
+            currentState.estadoJuego != EstadoDelJuego.IA_PENSANDO) return
+
+        if (currentState.modoDeJuego == ModoDeJuego.PVP_BLUETOOTH && esTurnoLocal()) {
+            val shotMessage = GameMessage(
+                type = MessageType.SHOT,
+                angulo = currentState.anguloActual,
+                potencia = currentState.potenciaActual
+            )
+            viewModelScope.launch {
+                bluetoothManager.sendMessage(shotMessage)
+            }
+        }
 
         viewModelScope.launch(Dispatchers.Default) {
             iniciarSimulacion()
@@ -127,26 +177,44 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSiguienteRoundClick() {
+        val currentState = _gameState.value
+        if (currentState.modoDeJuego == ModoDeJuego.PVP_BLUETOOTH && esTurnoLocal()) {
+            viewModelScope.launch {
+                bluetoothManager.sendMessage(GameMessage(MessageType.NEXT_ROUND))
+            }
+        }
+
         _gameState.update { estadoActual ->
             estadoActual.copy(
                 tanque1 = estadoActual.tanque1.copy(salud = 100, posicion = Vector2D(100f, ALTURA_SUELO - RADIO_TANQUE)),
                 tanque2 = estadoActual.tanque2.copy(salud = 100, posicion = Vector2D(MUNDO_ANCHO - 100f, ALTURA_SUELO - RADIO_TANQUE)),
                 estadoJuego = EstadoDelJuego.APUNTANDO,
                 turnoActual = 1,
-                anguloActual = 45.0f, // Resetea ángulo
-                potenciaActual = 50.0f // Resetea potencia
+                anguloActual = 45.0f,
+                potenciaActual = 50.0f
             )
         }
     }
 
     fun onVolverAlMenuClick() {
+        val currentState = _gameState.value
+        if (currentState.modoDeJuego == ModoDeJuego.PVP_BLUETOOTH) {
+            viewModelScope.launch {
+                bluetoothManager.sendMessage(GameMessage(MessageType.QUIT))
+            }
+            bluetoothManager.stop()
+        }
+
         _gameState.value = crearEstadoInicial()
         viewModelScope.launch {
             _navegarAInicio.emit(Unit)
         }
     }
 
-    // --- Funciones de Guardado/Carga ---
+    // --- Funciones de Guardado/Carga, Física, IA, etc. (SIN CAMBIOS) ---
+    // (Copia aquí el resto de funciones del archivo anterior: onSaveGameClick, iniciarSimulacion, etc.)
+    // ...
+
     fun onSaveGameClick() {
         val estado = _gameState.value
         if (estado.estadoJuego != EstadoDelJuego.APUNTANDO &&
@@ -156,18 +224,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.Default) {
-            //Revisa si ya tenemos un nombre de archivo
             val baseFileName = if (estado.loadedFromFileName != null) {
-                //Sí, sobrescribe
                 estado.loadedFromFileName.removeSuffix(".json")
             }else{
-                //No, crea uno nuevo
                 "partida_${System.currentTimeMillis()}"
             }
-            //Guarda el estado actual en el archivo
             repository.saveGame(estado, baseFileName)
-
-            //Actualiza el estado en memoria para "recordar" el archivo guardado
             _gameState.update { it.copy(loadedFromFileName = "$baseFileName.json") }
             _uiEvent.emit("Partida Guardada")
         }
@@ -177,7 +239,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return repository.getSavedGamesList()
     }
 
-    // Esta función ahora actualiza el StateFlow
     fun loadSavedGamesList() {
         _savedGamesList.value = repository.getSavedGamesList()
     }
@@ -185,7 +246,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun loadGame(fileName: String): GameState? {
         val loadedState = repository.loadGame(fileName)
         if (loadedState != null) {
-            //Actualiza el estado con el juego cargado
             _gameState.value = loadedState.copy(loadedFromFileName = fileName)
         }
         return loadedState
@@ -193,14 +253,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onDeleteGameClick(fileName: String) {
         viewModelScope.launch(Dispatchers.Default) {
-            // 1. Borra el archivo
             repository.deleteGame(fileName)
-            // 2. Actualiza la lista para que la UI reaccione
             loadSavedGamesList()
         }
     }
 
-    // --- Motor de Física y Simulación ---
     private suspend fun iniciarSimulacion() {
         _gameState.update { it.copy(estadoJuego = EstadoDelJuego.SIMULANDO) }
         val angulo = _gameState.value.anguloActual
@@ -253,7 +310,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _gameState.update { it.copy(estadoJuego = EstadoDelJuego.EXPLOSION, proyectil = null) }
         delay(1000)
 
-        // --- Lógica de Puntuación (Corregida) ---
         var esFinDeRound = false
         var esFinDeJuego = false
         if (huboImpacto) {
@@ -331,7 +387,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 estadoActual.copy(
                     estadoJuego = EstadoDelJuego.APUNTANDO,
                     turnoActual = proximoTurno,
-                    anguloActual = 45.0f, // Resetea para el jugador humano
+                    anguloActual = 45.0f,
                     potenciaActual = 50.0f
                 )
             }
@@ -341,14 +397,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- FUNCIÓN RESTAURADA ---
     private fun calcularDistancia(p1: Vector2D, p2: Vector2D): Float {
         val dx = p1.x - p2.x
         val dy = p1.y - p2.y
         return sqrt(dx * dx + dy * dy)
     }
 
-    // --- CEREBRO DE LA IA ---
     private fun ejecutarTurnoIA() {
         viewModelScope.launch(Dispatchers.Default) {
             delay(1500)
@@ -358,7 +412,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 estado.tanque2,
                 estado.tanque1
             )
-            // Actualiza el estado con el disparo de la IA
             _gameState.update { it.copy(anguloActual = anguloIA, potenciaActual = potenciaIA) }
             delay(500)
             onDispararClick()

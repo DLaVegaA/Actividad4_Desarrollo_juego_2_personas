@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import com.equipoea.Tankwar.uigame.GameScreen
 import com.equipoea.Tankwar.ui.theme.TankWarTheme
 import com.equipoea.Tankwar.viewmodel.GameViewModel
+import com.equipoea.Tankwar.viewmodel.BluetoothViewModel // <-- AÑADIDO
+import com.equipoea.Tankwar.ui.menu.BluetoothLobbyScreen // <-- AÑADIDO
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -26,6 +28,7 @@ import androidx.compose.runtime.getValue
 class MainActivity : ComponentActivity() {
 
     private val viewModel: GameViewModel by viewModels()
+    private val bluetoothViewModel: BluetoothViewModel by viewModels() // <-- AÑADIDO
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,14 +52,19 @@ class MainActivity : ComponentActivity() {
                         StartScreen(navController = navController)
                     }
 
+                    // --- RUTA MODIFICADA ---
                     composable(
-                        route = "game_screen/{modoDeJuego}/{dificultad}?restored={restored}",
+                        route = "game_screen/{modoDeJuego}/{dificultad}?restored={restored}&localPlayerId={localPlayerId}", // <-- PARÁMETRO AÑADIDO
                         arguments = listOf(
-                            navArgument("modoDeJuego") { type = NavType.StringType }, // <-- 'navArgument' y 'type' ahora se resolverán
+                            navArgument("modoDeJuego") { type = NavType.StringType },
                             navArgument("dificultad") { type = NavType.StringType },
-                            navArgument("restored") { // <-- 'navArgument' y 'defaultValue' ahora se resolverán
+                            navArgument("restored") {
                                 type = NavType.BoolType
                                 defaultValue = false
+                            },
+                            navArgument("localPlayerId") { // <-- ARGUMENTO AÑADIDO
+                                type = NavType.IntType
+                                defaultValue = 1 // Default a Jugador 1 (Host)
                             }
                         )
                     ) { backStackEntry ->
@@ -65,12 +73,14 @@ class MainActivity : ComponentActivity() {
                         val modo = ModoDeJuego.valueOf(modoStr)
                         val dificultad = Dificultad.valueOf(dificultadStr)
                         val restored = backStackEntry.arguments?.getBoolean("restored") ?: false
+                        val localPlayerId = backStackEntry.arguments?.getInt("localPlayerId") ?: 1 // <-- VALOR AÑADIDO
 
                         GameScreen(
                             viewModel = viewModel,
                             modoDeJuego = modo,
                             dificultad = dificultad,
-                            isRestored = restored
+                            isRestored = restored,
+                            localPlayerId = localPlayerId // <-- PASAR VALOR
                         )
                     }
 
@@ -80,8 +90,22 @@ class MainActivity : ComponentActivity() {
                             navController = navController
                         )
                     }
+
+                    // --- RUTA AÑADIDA ---
+                    composable(route = "bluetooth_lobby_screen") {
+                        BluetoothLobbyScreen(
+                            navController = navController,
+                            viewModel = bluetoothViewModel
+                        )
+                    }
                 }
             }
         }
+    }
+
+    // <-- AÑADIDO: Detener el gestor de BT si salimos de la app
+    override fun onDestroy() {
+        super.onDestroy()
+        bluetoothViewModel.stopAll()
     }
 }

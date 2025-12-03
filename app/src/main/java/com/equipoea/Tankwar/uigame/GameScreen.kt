@@ -47,7 +47,8 @@ fun GameScreen(
     viewModel: GameViewModel,
     modoDeJuego: ModoDeJuego,
     dificultad: Dificultad,
-    isRestored: Boolean
+    isRestored: Boolean,
+    localPlayerId: Int = 1 // <-- AÑADIDO
 ) {
     // 'getValue' ahora se resolverá
     val state by viewModel.gameState.collectAsState()
@@ -59,9 +60,11 @@ fun GameScreen(
         }
     }
 
-    LaunchedEffect(modoDeJuego, dificultad, isRestored) {
+    // --- LaunchedEffect MODIFICADO ---
+    LaunchedEffect(modoDeJuego, dificultad, isRestored, localPlayerId) {
         if (!isRestored) {
-            viewModel.iniciarModoDeJuego(modoDeJuego, dificultad)
+            // Pasamos el localPlayerId al ViewModel
+            viewModel.iniciarModoDeJuego(modoDeJuego, dificultad, localPlayerId)
         }
     }
 
@@ -73,11 +76,22 @@ fun GameScreen(
                 GameCanvas(state = state)
             }
 
-            // --- LÓGICA DE CONTROLES (Corregida) ---
-            // Las referencias a 'state.xxx' ahora funcionarán
-            val esTurnoHumano = (state.modoDeJuego == ModoDeJuego.PVP || state.turnoActual == 1)
-            val puedeControlar = (state.estadoJuego == EstadoDelJuego.APUNTANDO && esTurnoHumano)
+            // --- LÓGICA DE CONTROLES (Modificada) ---
+
+            // Determina si el jugador local puede controlar
+            val esTurnoDelJugadorLocal = when (state.modoDeJuego) {
+                ModoDeJuego.PVP_BLUETOOTH -> state.turnoActual == state.localPlayerId
+                ModoDeJuego.PVE -> state.turnoActual == 1
+                ModoDeJuego.PVP -> true // En PVP local, ambos pueden controlar (pasan el móvil)
+            }
+
+            val puedeControlar = (state.estadoJuego == EstadoDelJuego.APUNTANDO && esTurnoDelJugadorLocal)
             val puedeGuardar = (state.estadoJuego == EstadoDelJuego.APUNTANDO || state.estadoJuego == EstadoDelJuego.IA_PENSANDO)
+
+            // Añadimos un texto de espera para Bluetooth
+            val esEsperaBluetooth = state.modoDeJuego == ModoDeJuego.PVP_BLUETOOTH &&
+                    !esTurnoDelJugadorLocal &&
+                    state.estadoJuego == EstadoDelJuego.APUNTANDO
 
             if (puedeControlar) {
                 ControlPanel(
@@ -90,7 +104,7 @@ fun GameScreen(
                     onSaveClick = { viewModel.onSaveGameClick() }, // <-- Corregido
                     canSave = puedeGuardar // <-- Corregido
                 )
-            } else if (state.estadoJuego == EstadoDelJuego.IA_PENSANDO) {
+            } else if (state.estadoJuego == EstadoDelJuego.IA_PENSANDO || esEsperaBluetooth) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -99,11 +113,10 @@ fun GameScreen(
                         .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val textoEspera = if (esEsperaBluetooth) "ESPERANDO AL OPONENTE..." else "IA PENSANDO..."
                     Text(
-                        text = "IA PENSANDO...",
+                        text = textoEspera, // <-- TEXTO MODIFICADO
                         style = MaterialTheme.typography.titleMedium,
-                        // Ajusta este padding si el tamaño no coincide
-                        // Esta altura es una aproximación del ControlPanel
                         modifier = Modifier.padding(vertical = 136.dp + 16.dp)
                     )
                 }
