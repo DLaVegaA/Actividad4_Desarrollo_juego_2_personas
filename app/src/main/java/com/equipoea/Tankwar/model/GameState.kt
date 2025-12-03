@@ -1,9 +1,11 @@
 package com.equipoea.Tankwar.model
 
 // --- NUEVO: Enum para el modo de juego ---
+// --- NUEVO: Enum para el modo de juego ---
 enum class ModoDeJuego {
     PVP, // Jugador vs Jugador
-    PVE  // Jugador vs IA
+    PVE,  // Jugador vs IA
+    PVP_BLUETOOTH // <-- AÑADIDO
 }
 
 // --- NUEVO: Enum para la dificultad ---
@@ -57,5 +59,8 @@ data class GameState(
     val dificultad: Dificultad = Dificultad.NINGUNA,
     val anguloActual: Float = 45.0f,
     val potenciaActual: Float = 50.0f,
-    val loadedFromFileName: String? = null
+    val loadedFromFileName: String? = null,
+
+    // <-- AÑADIDO: 1 = Host, 2 = Client. Nos dice quiénes somos en el juego BT
+    val localPlayerId: Int = 1
 )

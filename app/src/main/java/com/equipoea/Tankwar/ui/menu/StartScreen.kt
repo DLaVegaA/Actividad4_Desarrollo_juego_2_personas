@@ -101,6 +101,17 @@ fun StartScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- BOTÓN AÑADIDO ---
+        Button(
+            onClick = {
+                navController.navigate("bluetooth_lobby_screen")
+            },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        ) {
+            Text(text = "Jugar por Bluetooth")
+        }
+        // --- FIN BOTÓN AÑADIDO ---
+
         // Botón para guardar (sin cambios)
         Button(
             onClick = {
